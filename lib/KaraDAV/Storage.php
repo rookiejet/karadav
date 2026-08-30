@@ -116,6 +116,10 @@ class Storage extends AbstractStorage implements TrashInterface
 			throw new WebDAV_Exception('File name is too short', 400);
 		}
 
+		if (str_ends_with($name, '.part')) {
+			throw new WebDAV_Exception('File names ending in .part are reserved', 400);
+		}
+
 		foreach (self::FORBIDDEN_CHARACTERS as $char) {
 			if (strpos($name, $char) !== false) {
 				throw new WebDAV_Exception('Forbidden character in filename: ' . $char, 400);
@@ -173,6 +177,11 @@ class Storage extends AbstractStorage implements TrashInterface
 
 		while ($file = $dir->read()) {
 			if ($file === '.' || $file === '..') {
+				continue;
+			}
+
+			// Don't expose upload part files
+			if (str_ends_with($file, '.part')) {
 				continue;
 			}
 
@@ -500,7 +509,7 @@ class Storage extends AbstractStorage implements TrashInterface
 			throw new WebDAV_Exception('Your quota is exhausted', 507);
 		}
 
-		$tmp_file = $parent . '/.' . sha1($target) . '.part';
+		$tmp_file = $parent . '/.' . sha1($target) . '-' . bin2hex(random_bytes(4)) . '.part';
 
 		$out = @fopen($tmp_file, 'w');
 
@@ -1015,6 +1024,10 @@ class Storage extends AbstractStorage implements TrashInterface
 		}
 
 		foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)) as $f) {
+			if (str_ends_with($f->getFilename(), '.part')) {
+				continue;
+			}
+
 			$size = self::getFileSize($f->getRealPath());
 			$total = self::addNumbersSafe($total, $size);
 		}
