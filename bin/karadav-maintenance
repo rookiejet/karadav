@@ -1,0 +1,216 @@
+#!/usr/bin/env php
+<?php
+/**
+ * KaraDAV maintenance: reconcile the files index and remove stale upload files.
+ *
+ * Directory listings read the filesystem directly, but thumbnails and some
+ * Nextcloud-compatible APIs use the SQLite `files` index. This job indexes
+ * files created outside WebDAV while preserving IDs for unchanged paths, so
+ * their cached thumbnails remain valid.
+ *
+ * It also removes `.part` staging files left behind by interrupted uploads
+ * (see Storage::put). Only files older than KARADAV_PART_MAX_AGE are removed,
+ * so in-progress uploads are left untouched.
+ *
+ * Configuration is done via environment variables (see doc/INSTALL.md):
+ *   KARADAV_APP_ROOT      Path to the KaraDAV install (default: repo root)
+ *   KARADAV_LOCK_FILE     Lock file path to prevent concurrent runs
+ *   KARADAV_PART_MAX_AGE  Max age in seconds before a .part file is removed
+ *
+ * Run as the server (www) user from cron or manually:
+ *     sudo -u www php bin/karadav-maintenance
+ */
+
+define('APP_ROOT', rtrim(getenv('KARADAV_APP_ROOT') ?: dirname(__DIR__), '/'));
+define('LOCK_FILE', getenv('KARADAV_LOCK_FILE') ?: '/var/cache/karadav/maintenance.lock');
+define('PART_MAX_AGE', (int) (getenv('KARADAV_PART_MAX_AGE') ?: 86400));
+
+const THUMBNAIL_SIZES = [150, 500, 1200];
+
+function thumbnailPath(int $id, int $size): string
+{
+	$hash = sha1($id . $size);
+	return sprintf('%s/thumbnails/%.2s/%2$s', \KaraDAV\CACHE_PATH, $hash);
+}
+
+function removeThumbnails(int $id): void
+{
+	foreach (THUMBNAIL_SIZES as $size) {
+		@unlink(thumbnailPath($id, $size));
+	}
+}
+
+/**
+ * Index one user and clean stale upload files.
+ * Return [inserted, updated, unchanged, deleted, cleaned].
+ */
+function reconcileUser(\KaraDAV\User $user): array
+{
+	$db = \KaraDAV\DB::getInstance();
+	$stats = ['inserted' => 0, 'updated' => 0, 'unchanged' => 0, 'deleted' => 0, 'cleaned' => 0];
+	$root = rtrim($user->path, '/') . '/';
+
+	if (!is_dir($root) || !is_readable($root)) {
+		throw new \RuntimeException(sprintf('Cannot read storage directory for %s: %s', $user->login, $root));
+	}
+
+	$db->exec('CREATE TEMP TABLE IF NOT EXISTS karadav_reindex_seen (path TEXT PRIMARY KEY);');
+	$db->exec('DELETE FROM karadav_reindex_seen;');
+
+	$seen = $db->prepare('INSERT OR IGNORE INTO karadav_reindex_seen (path) VALUES (?);');
+	$existing = $db->prepare('SELECT id, size, modified FROM files WHERE user = ? AND path = ?;');
+	$insert = $db->prepare('INSERT INTO files (user, path, size, modified) VALUES (?, ?, ?, ?);');
+	$update = $db->prepare('UPDATE files SET size = ?, modified = ? WHERE id = ?;');
+
+	$record = static function (string $path, int $size, int $modified) use ($db, $user, $seen, $existing, $insert, $update, &$stats): void {
+		$seen->bindValue(1, $path, SQLITE3_TEXT);
+		$seen->execute();
+		$seen->reset();
+		$seen->clear();
+
+		$existing->bindValue(1, $user->id, SQLITE3_INTEGER);
+		$existing->bindValue(2, $path, SQLITE3_TEXT);
+		$row = $existing->execute()->fetchArray(SQLITE3_ASSOC) ?: null;
+		$existing->reset();
+		$existing->clear();
+
+		if (!$row) {
+			$insert->bindValue(1, $user->id, SQLITE3_INTEGER);
+			$insert->bindValue(2, $path, SQLITE3_TEXT);
+			$insert->bindValue(3, $size, SQLITE3_INTEGER);
+			$insert->bindValue(4, $modified, SQLITE3_INTEGER);
+			$insert->execute();
+			$insert->reset();
+			$insert->clear();
+			$stats['inserted']++;
+			return;
+		}
+
+		if ((int) $row['size'] === $size && (int) $row['modified'] === $modified) {
+			$stats['unchanged']++;
+			return;
+		}
+
+		$update->bindValue(1, $size, SQLITE3_INTEGER);
+		$update->bindValue(2, $modified, SQLITE3_INTEGER);
+		$update->bindValue(3, $row['id'], SQLITE3_INTEGER);
+		$update->execute();
+		$update->reset();
+		$update->clear();
+		removeThumbnails((int) $row['id']);
+		$stats['updated']++;
+	};
+
+	// The root is a valid indexed path used by some WebDAV properties.
+	$record('', 0, (int) filemtime($root));
+
+	$flags = \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::UNIX_PATHS;
+	$iterator = new \RecursiveIteratorIterator(
+		new \RecursiveDirectoryIterator($root, $flags),
+		\RecursiveIteratorIterator::SELF_FIRST
+	);
+
+	foreach ($iterator as $file) {
+		$path = ltrim(substr($file->getPathname(), strlen($root)), '/');
+
+		if ($path === '') {
+			continue;
+		}
+
+		// Staging files left behind by interrupted uploads
+		if (str_ends_with($path, '.part')) {
+			if ($file->isFile() && (time() - $file->getMTime()) > PART_MAX_AGE) {
+				@unlink($file->getPathname());
+				$stats['cleaned']++;
+			}
+
+			continue;
+		}
+
+		// External writers can remove or replace a file after the directory
+		// iterator has found it but before stat() runs. Mark it as seen first
+		// so a transient race does not delete an otherwise valid prior index row.
+		$seen->bindValue(1, $path, SQLITE3_TEXT);
+		$seen->execute();
+		$seen->reset();
+		$seen->clear();
+
+		try {
+			$size = $file->isDir() ? 0 : \KaraDAV\Storage::getFileSize($file->getRealPath());
+			$record($path, $size, $file->getMTime());
+		}
+		catch (\Throwable $e) {
+			fwrite(STDERR, sprintf("[%s] Skipping transiently unavailable path: %s (%s)\n", date(DATE_RFC3339), $path, $e->getMessage()));
+		}
+	}
+
+	// Remove DB rows and thumbnails for externally deleted paths.
+	$stale = $db->prepare('SELECT id FROM files WHERE user = ? AND path NOT IN (SELECT path FROM karadav_reindex_seen);');
+	$stale->bindValue(1, $user->id, SQLITE3_INTEGER);
+	$result = $stale->execute();
+	$ids = [];
+	while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+		$ids[] = (int) $row['id'];
+	}
+
+	$delete = $db->prepare('DELETE FROM files WHERE id = ?;');
+	foreach ($ids as $id) {
+		removeThumbnails($id);
+		$delete->bindValue(1, $id, SQLITE3_INTEGER);
+		$delete->execute();
+		$delete->reset();
+		$delete->clear();
+		$stats['deleted']++;
+	}
+
+	return $stats;
+}
+
+$lock = fopen(LOCK_FILE, 'c');
+
+if (!$lock) {
+	fwrite(STDERR, "Cannot open maintenance lock file: " . LOCK_FILE . "\n");
+	exit(1);
+}
+
+if (!flock($lock, LOCK_EX | LOCK_NB)) {
+	fwrite(STDERR, "KaraDAV maintenance already running; skipping.\n");
+	exit(0);
+}
+
+try {
+	chdir(APP_ROOT);
+	require APP_ROOT . '/init.php';
+
+	$started = microtime(true);
+	$users = new \KaraDAV\Users;
+	$totals = ['inserted' => 0, 'updated' => 0, 'unchanged' => 0, 'deleted' => 0, 'cleaned' => 0];
+	$allUsers = $users->list();
+	$db = \KaraDAV\DB::getInstance();
+
+	fwrite(STDOUT, sprintf("[%s] Maintaining %d KaraDAV user(s).\n", date(DATE_RFC3339), count($allUsers)));
+	$db->begin();
+
+	foreach ($allUsers as $user) {
+		$stats = reconcileUser($user);
+		foreach ($stats as $key => $value) {
+			$totals[$key] += $value;
+		}
+		fwrite(STDOUT, sprintf("[%s] %s: +%d ~%d =%d -%d #%d\n", date(DATE_RFC3339), $user->login, $stats['inserted'], $stats['updated'], $stats['unchanged'], $stats['deleted'], $stats['cleaned']));
+	}
+
+	$db->commit();
+	fwrite(STDOUT, sprintf("[%s] Maintenance completed in %.1f seconds: +%d ~%d =%d -%d #%d stale files removed.\n", date(DATE_RFC3339), microtime(true) - $started, $totals['inserted'], $totals['updated'], $totals['unchanged'], $totals['deleted'], $totals['cleaned']));
+}
+catch (\Throwable $e) {
+	if (isset($db)) {
+		$db->rollback();
+	}
+	fwrite(STDERR, sprintf("[%s] KaraDAV maintenance failed: %s\n", date(DATE_RFC3339), $e->getMessage()));
+	fwrite(STDERR, $e->getTraceAsString() . "\n");
+	exit(1);
+}
+finally {
+	flock($lock, LOCK_UN);
+	fclose($lock);
+}
