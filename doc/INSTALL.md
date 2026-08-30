@@ -135,3 +135,30 @@ Please don't file issues related to Docker on this repository, it is dedicated t
 # Using LDAP
 
 Make sure you have the PHP LDAP extension (`apt install php-ldap`), then see the appropriate configuration constants in `config.local.php`.
+
+# Maintenance tasks
+
+A maintenance script is provided in `bin/karadav-maintenance`. It performs two jobs:
+
+1. Reconciles the SQLite `files` index with the filesystem, indexing files added outside WebDAV and removing entries for deleted files. This is required for thumbnails and some Nextcloud-compatible APIs.
+2. Removes `.part` upload staging files left behind by interrupted transfers, so they do not leak disk space.
+
+It is safe to run while the server is live: it uses a lock file to refuse concurrent runs, and it only removes `.part` files older than a configured age, leaving in-progress uploads untouched.
+
+Run it as your server user (the user that owns the data directory):
+
+```
+sudo -u www-data php /path/to/karadav/bin/karadav-maintenance
+```
+
+To run it periodically, add a cron entry, for example hourly:
+
+```
+0 * * * * www-data /usr/bin/php /path/to/karadav/bin/karadav-maintenance
+```
+
+The script is configured through environment variables:
+
+* `KARADAV_APP_ROOT` — path to the KaraDAV install (default: the repository root the script lives in)
+* `KARADAV_LOCK_FILE` — lock file path (default: `/var/cache/karadav/maintenance.lock`)
+* `KARADAV_PART_MAX_AGE` — maximum age in seconds before a `.part` file is considered stale and removed (default: `86400`, i.e. 24 hours)
