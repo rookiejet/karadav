@@ -492,18 +492,13 @@ class Storage extends AbstractStorage implements TrashInterface
 			throw new WebDAV_Exception('Your quota is exhausted', 507);
 		}
 
-		$tmp_dir = sprintf(STORAGE_PATH, '_tmp');
+		$tmp_file = $parent . '/.' . sha1($target) . '.part';
 
-		if (!file_exists($tmp_dir)) {
-			@mkdir($tmp_dir, 0777, true);
+		$out = @fopen($tmp_file, 'w');
+
+		if (!$out) {
+			throw new \RuntimeException('Cannot write to temporary file: ' . $tmp_file);
 		}
-
-		if (!is_writeable($tmp_dir)) {
-			throw new \RuntimeException('Cannot write to temporary storage path: ' . $tmp_dir);
-		}
-
-		$tmp_file = $tmp_dir . sha1($target);
-		$out = fopen($tmp_file, 'w');
 
 		while (!feof($pointer)) {
 			$bytes = fread($pointer, 8192);
