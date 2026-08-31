@@ -160,5 +160,5 @@ To run it periodically, add a cron entry, for example hourly:
 The script is configured through environment variables:
 
 * `KARADAV_APP_ROOT` — path to the KaraDAV install (default: the repository root the script lives in)
-* `KARADAV_LOCK_FILE` — lock file path (default: `/var/cache/karadav/maintenance.lock`)
+* `KARADAV_LOCK_FILE` — lock file path (default: `CACHE_PATH`/maintenance.lock)
 * `KARADAV_PART_MAX_AGE` — maximum age in seconds before a `.part` file is considered stale and removed (default: `86400`, i.e. 24 hours)
