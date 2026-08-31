@@ -14,7 +14,7 @@
  *
  * Configuration is done via environment variables (see doc/INSTALL.md):
  *   KARADAV_APP_ROOT      Path to the KaraDAV install (default: repo root)
- *   KARADAV_LOCK_FILE     Lock file path to prevent concurrent runs
+ *   KARADAV_LOCK_FILE     Lock file path (default: CACHE_PATH/maintenance.lock)
  *   KARADAV_PART_MAX_AGE  Max age in seconds before a .part file is removed
  *
  * Run as the server (www) user from cron or manually:
@@ -22,7 +22,6 @@
  */
 
 define('APP_ROOT', rtrim(getenv('KARADAV_APP_ROOT') ?: dirname(__DIR__), '/'));
-define('LOCK_FILE', getenv('KARADAV_LOCK_FILE') ?: '/var/cache/karadav/maintenance.lock');
 define('PART_MAX_AGE', (int) (getenv('KARADAV_PART_MAX_AGE') ?: 86400));
 
 const THUMBNAIL_SIZES = [150, 500, 1200];
@@ -166,10 +165,15 @@ function reconcileUser(\KaraDAV\User $user): array
 	return $stats;
 }
 
-$lock = fopen(LOCK_FILE, 'c');
+chdir(APP_ROOT);
+require APP_ROOT . '/init.php';
+
+@mkdir(\KaraDAV\CACHE_PATH, 0777, true);
+$lock_file = getenv('KARADAV_LOCK_FILE') ?: \KaraDAV\CACHE_PATH . '/maintenance.lock';
+$lock = fopen($lock_file, 'c');
 
 if (!$lock) {
-	fwrite(STDERR, "Cannot open maintenance lock file: " . LOCK_FILE . "\n");
+	fwrite(STDERR, "Cannot open maintenance lock file: " . $lock_file . "\n");
 	exit(1);
 }
 
@@ -179,9 +183,6 @@ if (!flock($lock, LOCK_EX | LOCK_NB)) {
 }
 
 try {
-	chdir(APP_ROOT);
-	require APP_ROOT . '/init.php';
-
 	$started = microtime(true);
 	$users = new \KaraDAV\Users;
 	$totals = ['inserted' => 0, 'updated' => 0, 'unchanged' => 0, 'deleted' => 0, 'cleaned' => 0];
