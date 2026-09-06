@@ -27,14 +27,14 @@ If you are looking for an even lighter WebDAV server, try also our other server,
 * Web UI to login, access files and apps, manage users
 * Integrated web file manager (using [WebDAV Manager.js](https://fossil.kd2.org/webdav-manager/)):
 	* Upload multiple files directly from browser, using paste or drag and drop
-	* Rename
-	* Delete
+	* Rename, delete, copy, move
 	* Create and edit text files
 	* Create directories
-	* MarkDown live preview while editing
+	* MarkDown live preview
 	* Preview of images, text, MarkDown and PDF
 	* Editing of Office files using Collabora or OnlyOffice
 	* Download/delete selected files from a directory
+  * Download selected files as a ZIP file
   * Thumbnails
 * WebDAV class 1, 2, 3 support, support for Etags
 * No database server is required (SQLite is used)

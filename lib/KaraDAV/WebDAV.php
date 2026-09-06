@@ -11,15 +11,19 @@ class WebDAV extends WebDAV_Server
 		$out = parent::html_directory($uri, $list);
 
 		if (null !== $out) {
-			if (ENABLE_THUMBNAILS_OK) {
-				$out = str_replace('<html', '<html data-nc-thumbnails="1" ', $out);
-			}
+			$options = [
+				'wopi_discovery_url' => WOPI_DISCOVERY_URL,
+				'server_url' => WWW_URL,
+				'webdav_url' => $this->storage->getUserURL(),
+				'autosave' => true,
+			];
 
-			if (WOPI_DISCOVERY_URL) {
-				$out = str_replace('<html', sprintf('<html data-wopi-discovery-url="%s" data-wopi-host-url="%s"', WOPI_DISCOVERY_URL, WWW_URL . 'wopi/'), $out);
-			}
+			$uri = $this->storage->getUserURL() . $uri;
+			$js = WWW_URL . (DEV ? 'browser/browser.js' : 'browser.min.js');
 
-			$out = str_replace('<body>', sprintf('<body style="opacity: 0"><script type="text/javascript" src="%swebdav.js?2025"></script>', WWW_URL), $out);
+			$out = str_replace('</head>', sprintf('<script type="text/javascript" src="%s"></script>
+				<script type="text/javascript">window.onload = () => browser.init(%s, %s);</script>', $js, json_encode($uri), json_encode($options)), $out);
+			$out = str_replace('<body>', '<body><noscript>Please enable javascript</noscript><div style="opacity:0">', $out);
 		}
 
 		return $out;

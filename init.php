@@ -34,6 +34,7 @@ if (!defined(__NAMESPACE__ . '\DATA_ROOT')) {
 
 // Default configuration constants
 $defaults = [
+	'DEV'                    => false,
 	'DEFAULT_QUOTA'          => 200,
 	'DEFAULT_TRASHBIN_DELAY' => 60*60*24*30,
 	'ENABLE_THUMBNAILS'      => true,
