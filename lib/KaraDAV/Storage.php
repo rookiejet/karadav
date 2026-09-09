@@ -304,6 +304,16 @@ class Storage extends AbstractStorage implements TrashInterface
 		return file_exists($path);
 	}
 
+	/**
+	 * Returns the filesystem path for a given URI
+	 */
+	public function getPath(string $uri): string
+	{
+		$path = $this->root . $uri;
+		$this->validatePath($path);
+		return $path;
+	}
+
 	protected function getRecursiveFileProperty(string $uri, string $prop): null|int|string
 	{
 		if ($prop === 'size') {
