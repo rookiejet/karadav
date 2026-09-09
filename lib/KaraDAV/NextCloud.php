@@ -283,7 +283,7 @@ class NextCloud extends WebDAV_NextCloud
 	public function serveThumbnail(string $uri, int $width, int $height, bool $crop = false, bool $preview = false): void
 	{
 		if (!ENABLE_THUMBNAILS_OK
-			|| !preg_match('/\.(?:jpe?g|gif|png|webp)$/', $uri)) {
+			|| !preg_match('/\.(?:jpe?g|gif|png|webp|heic|heif|avif)$/', $uri)) {
 			http_response_code(404);
 			return;
 		}
@@ -317,7 +317,8 @@ class NextCloud extends WebDAV_NextCloud
 			$this->server->log('NC Creating thumbnail (%d): %s', $size, basename($cache_path));
 			try {
 				$i = new Image;
-				$i->openFromBlob($this->storage->fetch($uri));
+				// Open from disk instead of reading the whole file into memory
+				$i->openFromPath($this->storage->getPath($uri));
 
 				if ($size === 150) {
 					$i->cropResize($size);

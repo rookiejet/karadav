@@ -16,6 +16,7 @@
  *   KARADAV_APP_ROOT      Path to the KaraDAV install (default: repo root)
  *   KARADAV_LOCK_FILE     Lock file path (default: CACHE_PATH/maintenance.lock)
  *   KARADAV_PART_MAX_AGE  Max age in seconds before a .part file is removed
+ *   KARADAV_THUMBNAIL_BUDGET  Max thumbnails to pre-generate per run (default: 500)
  *
  * Run as the server (www) user from cron or manually:
  *     sudo -u www php bin/karadav-maintenance
@@ -37,6 +38,80 @@ function removeThumbnails(int $id): void
 	foreach (THUMBNAIL_SIZES as $size) {
 		@unlink(thumbnailPath($id, $size));
 	}
+}
+
+/**
+ * Generate missing thumbnails for a user.
+ * Returns the number of thumbnails generated.
+ */
+function warmThumbnails(\KaraDAV\User $user, int $budget): int
+{
+	$db = \KaraDAV\DB::getInstance();
+	$generated = 0;
+	$root = rtrim($user->path, '/') . '/';
+
+	// 150 is used by the WebDAV browser listing, 500 by the detail view
+	// 1200 is only generated on demand and is too expensive to pre-generate
+	$sizes = [150, 500];
+
+	$stmt = $db->prepare('SELECT id, path FROM files WHERE user = ? AND size > 0;');
+	$stmt->bindValue(1, $user->id, SQLITE3_INTEGER);
+	$result = $stmt->execute();
+
+	while ($row = $result->fetchArray(SQLITE3_ASSOC)) {
+		if ($budget > 0 && $generated >= $budget) {
+			break;
+		}
+
+		$id = (int) $row['id'];
+		$path = $row['path'];
+		$source = $root . $path;
+
+		$need = [];
+
+		foreach ($sizes as $size) {
+			if (!is_file(thumbnailPath($id, $size))) {
+				$need[] = $size;
+			}
+		}
+
+		if (!count($need)) {
+			continue;
+		}
+
+		if (!preg_match('!\.(?:jpe?g|png|gif|webp|heic|heif|avif)$!i', $path)
+			|| !is_file($source) || !is_readable($source)) {
+			continue;
+		}
+
+		try {
+			$image = new \KD2\Graphics\Image;
+			$image->openFromPath($source);
+
+			foreach ($need as $size) {
+				if ($size === 150) {
+					$image->cropResize($size);
+				}
+				else {
+					$image->resize($size);
+				}
+
+				$cache_path = thumbnailPath($id, $size);
+				@mkdir(dirname($cache_path), 0777, true);
+				$image->save($cache_path, 'webp');
+				$generated++;
+			}
+		}
+		catch (\Throwable $e) {
+			// Not an image, or corrupt: skip
+			continue;
+		}
+	}
+
+	$stmt->reset();
+	$stmt->clear();
+
+	return $generated;
 }
 
 /**
@@ -201,6 +276,18 @@ try {
 	}
 
 	$db->commit();
+
+	// Pre-generate thumbnails outside the index transaction
+	// so the write lock is not held for the whole (possibly long) pass
+	$thumb_budget = (int) (getenv('KARADAV_THUMBNAIL_BUDGET') ?: 500);
+	$thumbnails = 0;
+
+	foreach ($allUsers as $user) {
+		$thumbnails += warmThumbnails($user, $thumb_budget - $thumbnails);
+	}
+
+	fwrite(STDOUT, sprintf("[%s] Generated %d thumbnail(s).\n", date(DATE_RFC3339), $thumbnails));
+
 	fwrite(STDOUT, sprintf("[%s] Maintenance completed in %.1f seconds: +%d ~%d =%d -%d #%d stale files removed.\n", date(DATE_RFC3339), microtime(true) - $started, $totals['inserted'], $totals['updated'], $totals['unchanged'], $totals['deleted'], $totals['cleaned']));
 }
 catch (\Throwable $e) {
