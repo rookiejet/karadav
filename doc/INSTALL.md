@@ -138,10 +138,11 @@ Make sure you have the PHP LDAP extension (`apt install php-ldap`), then see the
 
 # Maintenance tasks
 
-A maintenance script is provided in `bin/karadav-maintenance`. It performs two jobs:
+A maintenance script is provided in `bin/karadav-maintenance`. It performs these jobs:
 
-1. Reconciles the SQLite `files` index with the filesystem, indexing files added outside WebDAV and removing entries for deleted files. This is required for thumbnails and some Nextcloud-compatible APIs.
-2. Removes `.part` upload staging files left behind by interrupted transfers, so they do not leak disk space.
+- Reconciles the SQLite `files` index with the filesystem, indexing files added outside WebDAV and removing entries for deleted files. This is required for thumbnails and some Nextcloud-compatible APIs.
+- Removes `.part` upload staging files left behind by interrupted transfers, so they do not leak disk space.
+- Pre-generates missing image thumbnails into the thumbnail cache, so the WebDAV browser does not have to generate them on demand when listing a folder for the first time.
 
 It is safe to run while the server is live: it uses a lock file to refuse concurrent runs, and it only removes `.part` files older than a configured age, leaving in-progress uploads untouched.
 
@@ -162,3 +163,4 @@ The script is configured through environment variables:
 * `KARADAV_APP_ROOT` — path to the KaraDAV install (default: the repository root the script lives in)
 * `KARADAV_LOCK_FILE` — lock file path (default: `CACHE_PATH`/maintenance.lock)
 * `KARADAV_PART_MAX_AGE` — maximum age in seconds before a `.part` file is considered stale and removed (default: `86400`, i.e. 24 hours)
+* `KARADAV_THUMBNAIL_BUDGET` — maximum number of thumbnails to pre-generate in one run (default: `500`), so a nightly cron run stays bounded. Set it to `0` to pre-generate all missing thumbnails in a single run (useful as a one-off after enabling thumbnails on a large library).
