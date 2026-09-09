@@ -37,6 +37,57 @@ class Storage extends AbstractStorage implements TrashInterface
 		$this->nextcloud = $nextcloud;
 	}
 
+	/**
+	 * Returns the MIME type of a file, using the extension when known and
+	 * falling back to libmagic content sniffing otherwise
+	 */
+	static public function getContentTypeFromFilename(string $path): ?string
+	{
+		static $map = null;
+
+		if (null === $map) {
+			$map = [
+				'avif' => 'image/avif', 'bmp' => 'image/bmp', 'gif' => 'image/gif',
+				'heic' => 'image/heic', 'heif' => 'image/heif', 'ico' => 'image/x-icon',
+				'jpeg' => 'image/jpeg', 'jpg' => 'image/jpeg', 'png' => 'image/png',
+				'svg' => 'image/svg+xml', 'tif' => 'image/tiff', 'tiff' => 'image/tiff',
+				'webp' => 'image/webp',
+				'aac' => 'audio/aac', 'flac' => 'audio/flac', 'm4a' => 'audio/mp4',
+				'mp3' => 'audio/mpeg', 'oga' => 'audio/ogg', 'ogg' => 'audio/ogg',
+				'opus' => 'audio/opus', 'wav' => 'audio/wav', 'wma' => 'audio/x-ms-wma',
+				'avi' => 'video/x-msvideo', 'm4v' => 'video/x-m4v', 'mkv' => 'video/x-matroska',
+				'mov' => 'video/quicktime', 'mp4' => 'video/mp4', 'mpeg' => 'video/mpeg',
+				'mpg' => 'video/mpeg', 'ogv' => 'video/ogg', 'webm' => 'video/webm',
+				'3gp' => 'video/3gpp', '3g2' => 'video/3gpp2',
+				'7z' => 'application/x-7z-compressed', 'bz2' => 'application/x-bzip2',
+				'csv' => 'text/csv', 'css' => 'text/css', 'doc' => 'application/msword',
+				'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+				'epub' => 'application/epub+zip', 'gz' => 'application/gzip',
+				'html' => 'text/html', 'htm' => 'text/html', 'ini' => 'text/plain',
+				'jar' => 'application/java-archive', 'js' => 'application/javascript',
+				'json' => 'application/json', 'log' => 'text/plain', 'm3u' => 'audio/x-mpegurl',
+				'md' => 'text/markdown', 'mp3' => 'audio/mpeg', 'odp' => 'application/vnd.oasis.opendocument.presentation',
+				'ods' => 'application/vnd.oasis.opendocument.spreadsheet', 'odt' => 'application/vnd.oasis.opendocument.text',
+				'pdf' => 'application/pdf', 'php' => 'application/x-httpd-php',
+				'ppt' => 'application/vnd.ms-powerpoint', 'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+				'rar' => 'application/vnd.rar', 'rtf' => 'application/rtf', 'sh' => 'application/x-sh',
+				'sql' => 'application/sql', 'tar' => 'application/x-tar', 'tex' => 'application/x-tex',
+				'txt' => 'text/plain', 'xls' => 'application/vnd.ms-excel', 'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+				'xml' => 'application/xml', 'yaml' => 'application/yaml', 'yml' => 'application/yaml',
+				'zip' => 'application/zip',
+			];
+		}
+
+		$ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+		if (isset($map[$ext])) {
+			return $map[$ext];
+		}
+
+		$mime = @mime_content_type($path);
+		return $mime ?: null;
+	}
+
 	protected function getQuota(bool $in_bytes = false): stdClass
 	{
 		$this->quota ??= $this->user->quota();
@@ -294,7 +345,7 @@ class Storage extends AbstractStorage implements TrashInterface
 			case 'DAV::getcontenttype':
 				// ownCloud app crashes if mimetype is provided for a directory
 				// https://github.com/owncloud/android/issues/3768
-				return is_dir($target) ? null : @mime_content_type($target);
+				return is_dir($target) ? null : self::getContentTypeFromFilename($target);
 			case 'DAV::resourcetype':
 				return is_dir($target) ? 'collection' : '';
 			case 'DAV::getlastmodified':
@@ -1276,7 +1327,7 @@ class Storage extends AbstractStorage implements TrashInterface
 				NextCloud::PROP_OC_SIZE => $size,
 				NextCloud::PROP_OC_ID => $this->getFileId($name),
 				'DAV::getcontentlength' => $size,
-				'DAV::getcontenttype' => $is_dir ? null : @mime_content_type($target),
+				'DAV::getcontenttype' => $is_dir ? null : self::getContentTypeFromFilename($target),
 				'DAV::resourcetype' => $is_dir ? 'collection' : '',
 			];
 		}
