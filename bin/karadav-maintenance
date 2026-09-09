@@ -1,7 +1,8 @@
 #!/usr/bin/env php
 <?php
 /**
- * KaraDAV maintenance: reconcile the files index and remove stale upload files.
+ * KaraDAV maintenance: reconcile the files index, remove stale upload
+ * files, and pre-generate missing thumbnails.
  *
  * Directory listings read the filesystem directly, but thumbnails and some
  * Nextcloud-compatible APIs use the SQLite `files` index. This job indexes
