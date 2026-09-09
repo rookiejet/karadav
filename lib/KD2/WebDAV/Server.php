@@ -1370,7 +1370,14 @@ class Server
 			$this->log('=> %d', http_response_code());
 
 			if (null !== $out) {
-				$this->log('=> %s', $out);
+				// Don't log large response bodies: the copy made for the log
+				// message can exhaust the memory limit
+				if (strlen($out) < (1 << 20)) {
+					$this->log('=> %s', $out);
+				}
+				else {
+					$this->log('=> %d bytes (response body not logged)', strlen($out));
+				}
 			}
 
 			echo $out;
