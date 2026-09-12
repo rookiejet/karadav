@@ -1,3 +1,8 @@
+## 0.7.0 beta 7 - ??
+
+* Update WebDAV file manager: now implements copy/cut/paste/zip, code editor, better markdown rendering, gallery view…
+* Various fixes
+
 ## 0.7.0 beta 6 - August 29, 2026
 
 * Quotas should now work on 32-bits platforms (testing needed, please report)
