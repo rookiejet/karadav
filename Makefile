@@ -5,8 +5,7 @@ INSTALL_USER=www-data
 deps: js-deps php-deps
 
 js-deps:
-	wget -O www/webdav.js https://fossil.kd2.org/webdav-manager/doc/trunk/webdav.js
-	wget -O www/webdav.css https://fossil.kd2.org/webdav-manager/doc/trunk/webdav.css
+	wget -O www/browser.min.js https://fossil.kd2.org/webdav-manager/doc/dev/browser.min.js
 
 php-deps:
 	for i in $$(find lib/KD2 -type f | sort); do \

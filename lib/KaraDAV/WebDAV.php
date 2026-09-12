@@ -19,7 +19,7 @@ class WebDAV extends WebDAV_Server
 			];
 
 			$uri = $this->storage->getUserURL() . $uri;
-			$js = WWW_URL . (DEV ? 'browser/browser.js' : 'browser.min.js');
+			$js = WWW_URL . (DEV ? 'browser/boot.js' : 'browser.min.js');
 
 			$out = str_replace('</head>', sprintf('<script type="text/javascript" src="%s"></script>
 				<script type="text/javascript">window.onload = () => browser.init(%s, %s);</script>', $js, json_encode($uri), json_encode($options)), $out);
