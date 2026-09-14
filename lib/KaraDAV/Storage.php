@@ -1164,7 +1164,15 @@ class Storage extends AbstractStorage implements TrashInterface
 
 		$token_decode = WOPI::base64_decode_url_safe($token);
 
-		list($user_hmac, $random, $ttl, $login) = explode('_', $token_decode);
+		$parts = explode('_', $token_decode);
+
+		// A malformed token (for example an OnlyOffice JWT sent as
+		// Authorization: Bearer) must be rejected like any other invalid token
+		if (4 !== count($parts)) {
+			return null;
+		}
+
+		list($user_hmac, $random, $ttl, $login) = $parts;
 		$ttl = (int) $ttl;
 
 		if ($ttl < time()) {

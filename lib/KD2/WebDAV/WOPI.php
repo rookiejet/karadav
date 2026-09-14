@@ -109,14 +109,19 @@ class WOPI
 	 */
 	public function getAuthToken(): string
 	{
+		// The access token in the URL is the canonical WOPI credential, so
+		// prefer it over the Authorization header: WOPI clients may fill the
+		// header with their own token (for example an OnlyOffice JWT) which
+		// is not a valid WOPI access token
+		if (!empty($_REQUEST['access_token'])) {
+			return trim($_REQUEST['access_token']);
+		}
+
 		// HTTP_AUTHORIZATION might be missing in some installs
 		$header = apache_request_headers()['Authorization'] ?? '';
 
 		if ($header && 0 === stripos($header, 'Bearer ')) {
 			return trim(substr($header, strlen('Bearer ')));
-		}
-		elseif (!empty($_REQUEST['access_token'])) {
-			return trim($_REQUEST['access_token']);
 		}
 		else {
 			throw new Exception('No access_token was provided', 401);
