@@ -121,15 +121,19 @@ class User
 			$free = 0;
 			$used = 0;
 		}
-		elseif ($this->quota === -1) {
-			$total = @disk_total_space($this->path);
-			$free = @disk_free_space($this->path);
-			$used = Storage::getDirectorySize($this->path);
-		}
 		else {
-			$used = Storage::getDirectorySize($this->path);
-			$total = null;
-			$free = null;
+			// Use the files index instead of walking the whole storage tree
+			// on every quota lookup, which is slow on large accounts
+			$used = (int) (DB::getInstance()->firstColumn('SELECT SUM(size) FROM files WHERE user = ?;', $this->id) ?: 0);
+
+			if ($this->quota === -1) {
+				$total = @disk_total_space($this->path);
+				$free = @disk_free_space($this->path);
+			}
+			else {
+				$total = null;
+				$free = null;
+			}
 		}
 
 		if ($with_trash) {
